@@ -32,8 +32,8 @@
    ⚠️  REPLACE these two strings with your own project values.
    Get them free at https://supabase.com
    ============================================================ */
-const SUPABASE_URL      = 'https://vjolfbvqeeqfhookpexw.supabase.co';       // e.g. https://xyzabc.supabase.co
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqb2xmYnZxZWVxZmhvb2twZXh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjE3MjQsImV4cCI6MjA4ODYzNzcyNH0.lk-hTshPt4PDqkbZd1TNzdMgByk_j9HTUFw5KWBdAtY';  // long JWT string starting with eyJ…
+const SUPABASE_URL      = 'YOUR_SUPABASE_URL';       // e.g. https://xyzabc.supabase.co
+const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';  // long JWT string starting with eyJ…
 
 // ── Initialise Supabase client ──────────────────────────────
 const CONFIGURED = SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
@@ -77,45 +77,53 @@ document.addEventListener('DOMContentLoaded', async () => {
   lucide.createIcons();
   applyTheme();
 
-  // Show config notice if keys not set
+  // Register auth UI listeners exactly once, here, at boot
+  initAuthUI();
+  initOfflineDetection();
+
+  // Not configured — show auth screen with a setup notice, disable all actions
   if (!CONFIGURED) {
-    showAuthScreen();
+    document.getElementById('authScreen').style.display = 'flex';
+    document.getElementById('app').classList.add('hidden');
     document.getElementById('configNotice').classList.remove('hidden');
-    document.getElementById('loginForm').classList.remove('active');
-    document.getElementById('loginForm').style.display = 'none';
-    document.getElementById('signupForm').style.display = 'none';
-    document.querySelector('.auth-tabs').style.display = 'none';
+    document.querySelector('.auth-tabs').style.visibility = 'hidden';
+    document.getElementById('loginBtn').disabled  = true;
+    document.getElementById('signupBtn').disabled = true;
+    document.getElementById('forgotBtn').disabled = true;
     lucide.createIcons();
     return;
   }
 
   showLoadingOverlay();
 
-  // Listen for auth state changes (handles refresh, tab reopen, etc.)
+  // Auth state listener — fires on sign-in, sign-out, token refresh
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) {
       state.user = session.user;
-      await bootApp();
+      if (!state.booted) {
+        state.booted = true;
+        await bootApp();
+      }
     } else if (event === 'SIGNED_OUT') {
-      state.user = null;
+      state.user   = null;
+      state.booted = false;
       resetAppState();
       hideLoadingOverlay();
-      showAuthScreen();
-    } else if (event === 'PASSWORD_RECOVERY') {
-      hideLoadingOverlay();
-      showAuthScreen();
+      // Show auth screen without re-calling initAuthUI
+      document.getElementById('authScreen').style.display = 'flex';
+      document.getElementById('app').classList.add('hidden');
+    } else if (event === 'TOKEN_REFRESHED' && session) {
+      state.user = session.user;
     }
   });
 
-  // Check existing session
+  // Check for an existing session on page load
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     hideLoadingOverlay();
-    showAuthScreen();
+    document.getElementById('authScreen').style.display = 'flex';
+    document.getElementById('app').classList.add('hidden');
   }
-  // If session exists, onAuthStateChange will fire SIGNED_IN automatically
-
-  initOfflineDetection();
 });
 
 async function bootApp() {
@@ -193,31 +201,45 @@ function initOfflineDetection() {
 function showAuthScreen() {
   document.getElementById('authScreen').style.display = 'flex';
   document.getElementById('app').classList.add('hidden');
-  initAuthUI();
+  // Reset form state cleanly without re-attaching listeners
+  switchAuthTab('login');
 }
 
 function hideAuthScreen() {
   document.getElementById('authScreen').style.display = 'none';
 }
 
+/* switchAuthTab — called at boot and when user clicks a tab */
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === tab);
+  });
+  document.querySelectorAll('.auth-form').forEach(f => {
+    f.classList.toggle('active', f.id === `${tab}Form`);
+  });
+  // Clear errors when switching tabs
+  document.getElementById('loginError').classList.add('hidden');
+  document.getElementById('signupError').classList.add('hidden');
+  document.getElementById('signupSuccess').classList.add('hidden');
+}
+
 function initAuthUI() {
   // Tab switching
   document.querySelectorAll('.auth-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
-      document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
-      tab.classList.add('active');
-      document.getElementById(`${tab.dataset.tab}Form`).classList.add('active');
-    });
+    tab.addEventListener('click', () => switchAuthTab(tab.dataset.tab));
   });
 
-  // Sign In
+  // Sign In — button + Enter key
   document.getElementById('loginBtn').addEventListener('click', handleLogin);
-  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  ['loginEmail', 'loginPassword'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  });
 
-  // Sign Up
+  // Sign Up — button + Enter key
   document.getElementById('signupBtn').addEventListener('click', handleSignup);
-  document.getElementById('signupPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleSignup(); });
+  ['signupName', 'signupEmail', 'signupPassword'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') handleSignup(); });
+  });
 
   // Forgot password
   document.getElementById('forgotBtn').addEventListener('click', handleForgotPassword);
