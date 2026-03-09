@@ -5,14 +5,79 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Solace — Your Private Space</title>
   <link rel="stylesheet" href="style.css" />
-  <!-- Google Fonts: Playfair Display + DM Sans -->
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
-  <!-- Lucide Icons CDN -->
+  <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-  <!-- jsPDF for export -->
+  <!-- jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+
+  <!-- ===================== AUTH SCREEN ===================== -->
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <span class="logo-icon"><i data-lucide="feather"></i></span>
+        <span class="logo-text">Solace</span>
+      </div>
+      <p class="auth-tagline">Your private space to think, feel & organise.</p>
+
+      <!-- Tab switcher -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Sign In</button>
+        <button class="auth-tab" data-tab="signup">Create Account</button>
+      </div>
+
+      <!-- Login form -->
+      <div class="auth-form active" id="loginForm">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="loginEmail" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="loginPassword" placeholder="Your password" autocomplete="current-password" />
+        </div>
+        <p id="loginError" class="auth-error hidden"></p>
+        <button class="btn btn-primary btn-full" id="loginBtn">
+          <span id="loginBtnText">Sign In</span>
+          <span class="spinner hidden" id="loginSpinner"></span>
+        </button>
+        <button class="btn btn-ghost btn-full" id="forgotBtn">Forgot password?</button>
+      </div>
+
+      <!-- Signup form -->
+      <div class="auth-form" id="signupForm">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="signupName" placeholder="Your name" autocomplete="name" />
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="signupEmail" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="signupPassword" placeholder="At least 6 characters" autocomplete="new-password" />
+        </div>
+        <p id="signupError" class="auth-error hidden"></p>
+        <p id="signupSuccess" class="auth-success hidden"></p>
+        <button class="btn btn-primary btn-full" id="signupBtn">
+          <span id="signupBtnText">Create Account</span>
+          <span class="spinner hidden" id="signupSpinner"></span>
+        </button>
+      </div>
+
+      <!-- Config notice (shown when Supabase keys not set) -->
+      <div class="config-notice hidden" id="configNotice">
+        <i data-lucide="alert-triangle"></i>
+        <p>Supabase is not configured yet. Open <code>script.js</code> and add your <strong>SUPABASE_URL</strong> and <strong>SUPABASE_ANON_KEY</strong>.</p>
+        <a href="https://supabase.com" target="_blank" class="btn btn-secondary btn-sm">Get free Supabase project →</a>
+      </div>
+    </div>
+  </div>
 
   <!-- ===================== LOCK SCREEN ===================== -->
   <div id="lockScreen" class="lock-screen hidden">
@@ -42,7 +107,7 @@
   </div>
 
   <!-- ===================== MAIN APP ===================== -->
-  <div id="app" class="app-container">
+  <div id="app" class="app-container hidden">
 
     <!-- ---- SIDEBAR ---- -->
     <aside class="sidebar" id="sidebar">
@@ -54,26 +119,31 @@
         <button class="sidebar-close" id="sidebarClose"><i data-lucide="x"></i></button>
       </div>
 
+      <!-- User profile chip -->
+      <div class="user-chip" id="userChip">
+        <div class="user-avatar" id="userAvatar">?</div>
+        <div class="user-info">
+          <span class="user-name" id="userName">Loading…</span>
+          <span class="user-email" id="userEmail"></span>
+        </div>
+        <div class="sync-dot" id="syncDot" title="Synced"></div>
+      </div>
+
       <nav class="sidebar-nav">
         <a href="#" class="nav-item active" data-page="dashboard">
-          <i data-lucide="layout-dashboard"></i>
-          <span>Dashboard</span>
+          <i data-lucide="layout-dashboard"></i><span>Dashboard</span>
         </a>
         <a href="#" class="nav-item" data-page="diary">
-          <i data-lucide="book-open"></i>
-          <span>Diary</span>
+          <i data-lucide="book-open"></i><span>Diary</span>
         </a>
         <a href="#" class="nav-item" data-page="todo">
-          <i data-lucide="check-square"></i>
-          <span>Tasks</span>
+          <i data-lucide="check-square"></i><span>Tasks</span>
         </a>
         <a href="#" class="nav-item" data-page="calendar">
-          <i data-lucide="calendar"></i>
-          <span>Calendar</span>
+          <i data-lucide="calendar"></i><span>Calendar</span>
         </a>
         <a href="#" class="nav-item" data-page="settings">
-          <i data-lucide="settings"></i>
-          <span>Settings</span>
+          <i data-lucide="settings"></i><span>Settings</span>
         </a>
       </nav>
 
@@ -81,6 +151,10 @@
         <button class="theme-toggle" id="themeToggle">
           <i data-lucide="moon" id="themeIcon"></i>
           <span id="themeLabel">Dark Mode</span>
+        </button>
+        <button class="signout-btn" id="signOutBtn">
+          <i data-lucide="log-out"></i>
+          <span>Sign Out</span>
         </button>
       </div>
     </aside>
@@ -93,6 +167,10 @@
         <button class="menu-btn" id="menuBtn"><i data-lucide="menu"></i></button>
         <div class="topbar-title" id="pageTitle">Dashboard</div>
         <div class="topbar-actions">
+          <!-- Sync status indicator -->
+          <div class="sync-status" id="syncStatus" title="All changes saved">
+            <i data-lucide="cloud" id="syncIcon"></i>
+          </div>
           <button class="icon-btn" id="lockBtn" title="Lock App"><i data-lucide="lock"></i></button>
         </div>
       </header>
@@ -100,12 +178,10 @@
       <!-- ===================== PAGE: DASHBOARD ===================== -->
       <section class="page active" id="page-dashboard">
         <div class="page-content">
-
           <div class="greeting-section">
             <h1 class="greeting" id="greeting">Good morning ✨</h1>
             <p class="greeting-date" id="greetingDate"></p>
           </div>
-
           <div class="stats-grid">
             <div class="stat-card accent-sage">
               <div class="stat-icon"><i data-lucide="check-circle-2"></i></div>
@@ -136,9 +212,7 @@
               </div>
             </div>
           </div>
-
           <div class="dashboard-grid">
-            <!-- Quick Diary Entry -->
             <div class="dash-card">
               <div class="dash-card-header">
                 <h3><i data-lucide="pen-line"></i> Quick Journal</h3>
@@ -146,8 +220,6 @@
               <textarea id="quickDiaryText" class="quick-textarea" placeholder="What's on your mind today?"></textarea>
               <button class="btn btn-primary" id="quickSaveEntry">Save Entry</button>
             </div>
-
-            <!-- Today's Tasks -->
             <div class="dash-card">
               <div class="dash-card-header">
                 <h3><i data-lucide="list-checks"></i> Today's Tasks</h3>
@@ -160,25 +232,20 @@
               <ul class="task-list" id="dashTaskList"></ul>
             </div>
           </div>
-
         </div>
       </section>
 
       <!-- ===================== PAGE: DIARY ===================== -->
       <section class="page" id="page-diary">
         <div class="page-content">
-
           <div class="page-header">
             <h2 class="page-heading">My Diary</h2>
             <button class="btn btn-primary" id="newEntryBtn"><i data-lucide="plus"></i> New Entry</button>
           </div>
-
           <div class="search-bar">
             <i data-lucide="search"></i>
             <input type="text" id="diarySearch" placeholder="Search your entries…" />
           </div>
-
-          <!-- Entry Editor (hidden by default) -->
           <div class="entry-editor hidden" id="entryEditor">
             <div class="editor-header">
               <input type="text" id="entryTitle" placeholder="Entry title (optional)" class="editor-title-input" />
@@ -206,26 +273,19 @@
             </div>
             <div class="autosave-hint" id="autosaveHint"></div>
           </div>
-
-          <!-- Entries List -->
           <div id="diaryEntriesList" class="entries-list"></div>
-
           <p class="empty-state hidden" id="diaryEmpty">
-            <i data-lucide="feather"></i><br>
-            No entries yet. Start writing your story.
+            <i data-lucide="feather"></i><br>No entries yet. Start writing your story.
           </p>
-
         </div>
       </section>
 
       <!-- ===================== PAGE: TODO ===================== -->
       <section class="page" id="page-todo">
         <div class="page-content">
-
           <div class="page-header">
             <h2 class="page-heading">Tasks</h2>
           </div>
-
           <div class="todo-input-row">
             <input type="text" id="todoInput" placeholder="What needs to be done?" class="todo-main-input" />
             <select id="todoPriority" class="priority-select">
@@ -235,13 +295,11 @@
             </select>
             <button class="btn btn-primary" id="addTodoBtn"><i data-lucide="plus"></i> Add</button>
           </div>
-
           <div class="todo-filters">
             <button class="filter-btn active" data-filter="all">All</button>
             <button class="filter-btn" data-filter="pending">Pending</button>
             <button class="filter-btn" data-filter="completed">Completed</button>
           </div>
-
           <div class="todo-progress">
             <div class="progress-label">
               <span id="todoProgressLabel">0 of 0 completed</span>
@@ -249,25 +307,19 @@
             </div>
             <div class="progress-bar"><div class="progress-fill" id="todoProgressFill"></div></div>
           </div>
-
           <ul class="task-list full" id="todoList"></ul>
-
           <p class="empty-state hidden" id="todoEmpty">
-            <i data-lucide="check-circle-2"></i><br>
-            No tasks here. You're all clear!
+            <i data-lucide="check-circle-2"></i><br>No tasks here. You're all clear!
           </p>
-
         </div>
       </section>
 
       <!-- ===================== PAGE: CALENDAR ===================== -->
       <section class="page" id="page-calendar">
         <div class="page-content">
-
           <div class="page-header">
             <h2 class="page-heading">Calendar</h2>
           </div>
-
           <div class="calendar-wrapper">
             <div class="cal-nav">
               <button class="icon-btn" id="calPrev"><i data-lucide="chevron-left"></i></button>
@@ -276,26 +328,41 @@
             </div>
             <div class="cal-grid" id="calGrid"></div>
           </div>
-
           <div class="cal-entries-panel" id="calEntriesPanel">
             <h4 id="calSelectedDate"></h4>
             <div id="calDayEntries"></div>
           </div>
-
         </div>
       </section>
 
       <!-- ===================== PAGE: SETTINGS ===================== -->
       <section class="page" id="page-settings">
         <div class="page-content">
-
           <div class="page-header">
             <h2 class="page-heading">Settings</h2>
           </div>
 
+          <!-- Account section -->
+          <div class="settings-group">
+            <h3 class="settings-group-title">Account</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Signed in as</span>
+                <span class="setting-desc" id="settingsEmail">—</span>
+              </div>
+              <button class="btn btn-ghost" id="settingsSignOut"><i data-lucide="log-out"></i> Sign Out</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Cloud Sync</span>
+                <span class="setting-desc">Your data syncs automatically across all devices</span>
+              </div>
+              <span class="sync-badge" id="syncBadge"><i data-lucide="cloud-check"></i> Active</span>
+            </div>
+          </div>
+
           <div class="settings-group">
             <h3 class="settings-group-title">Privacy & Security</h3>
-
             <div class="setting-row">
               <div class="setting-info">
                 <span class="setting-name">Passcode Lock</span>
@@ -306,7 +373,6 @@
                 <span class="toggle-slider"></span>
               </label>
             </div>
-
             <div class="pin-setup hidden" id="pinSetup">
               <p class="pin-setup-label">Set a new 4-digit PIN:</p>
               <input type="password" id="newPinInput" maxlength="4" placeholder="Enter 4-digit PIN" class="pin-input" />
@@ -341,7 +407,7 @@
             <div class="setting-row">
               <div class="setting-info">
                 <span class="setting-name">Clear All Data</span>
-                <span class="setting-desc">Permanently delete all entries and tasks</span>
+                <span class="setting-desc">Permanently delete all your entries and tasks from the cloud</span>
               </div>
               <button class="btn btn-danger" id="clearDataBtn"><i data-lucide="trash-2"></i> Clear</button>
             </div>
@@ -350,21 +416,18 @@
           <div class="settings-group">
             <h3 class="settings-group-title">About</h3>
             <p class="about-text">
-              <strong>Solace</strong> is a fully private journaling and task management app.
-              All your data lives exclusively in your browser's LocalStorage — nothing is ever sent to any server.
+              <strong>Solace</strong> is a private journaling and task management app. Your data is securely stored in the cloud via Supabase and synced across all your devices. Each user can only access their own data.
             </p>
           </div>
-
         </div>
       </section>
 
     </main>
   </div>
 
-  <!-- ---- OVERLAY for sidebar on mobile ---- -->
   <div class="sidebar-overlay hidden" id="sidebarOverlay"></div>
 
-  <!-- ---- CONFIRM MODAL ---- -->
+  <!-- CONFIRM MODAL -->
   <div class="modal-overlay hidden" id="confirmModal">
     <div class="modal-card">
       <p id="confirmMessage">Are you sure?</p>
@@ -375,7 +438,7 @@
     </div>
   </div>
 
-  <!-- ---- TOAST ---- -->
+  <!-- TOAST -->
   <div class="toast hidden" id="toast"></div>
 
   <script src="script.js"></script>

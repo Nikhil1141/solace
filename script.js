@@ -1,70 +1,131 @@
 /**
  * SOLACE — Personal Diary & Task Manager
- * script.js | Full application logic
+ * script.js | Supabase cloud edition
+ *
+ * ╔══════════════════════════════════════════════════════╗
+ * ║  SETUP — Replace the two values below with yours    ║
+ * ║  1. Go to https://supabase.com → New Project        ║
+ * ║  2. Settings → API → copy URL + anon public key     ║
+ * ╚══════════════════════════════════════════════════════╝
  *
  * Sections:
- *  1. State & Storage helpers
- *  2. Init & Boot
- *  3. Navigation
- *  4. Lock / PIN Screen
- *  5. Theme
- *  6. Dashboard
- *  7. Diary
- *  8. Todo / Tasks
- *  9. Calendar
- * 10. Settings
- * 11. PDF Export
- * 12. Toast & Modal helpers
- * 13. Utility helpers
+ *  0. Supabase config & client
+ *  1. State
+ *  2. Boot
+ *  3. Auth (sign up / sign in / sign out)
+ *  4. Navigation
+ *  5. Lock / PIN
+ *  6. Theme
+ *  7. Dashboard
+ *  8. Diary  (CRUD → Supabase)
+ *  9. Todo   (CRUD → Supabase)
+ * 10. Calendar
+ * 11. Settings
+ * 12. PDF Export
+ * 13. Sync helpers
+ * 14. Toast, Modal, Utilities
  */
 
 /* ============================================================
-   1. STATE & STORAGE HELPERS
+   0. SUPABASE CONFIG
+   ============================================================
+   ⚠️  REPLACE these two strings with your own project values.
+   Get them free at https://supabase.com
+   ============================================================ */
+const SUPABASE_URL      = 'https://vjolfbvqeeqfhookpexw.supabase.co';       // e.g. https://xyzabc.supabase.co
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqb2xmYnZxZWVxZmhvb2twZXh3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwNjE3MjQsImV4cCI6MjA4ODYzNzcyNH0.lk-hTshPt4PDqkbZd1TNzdMgByk_j9HTUFw5KWBdAtY';  // long JWT string starting with eyJ…
+
+// ── Initialise Supabase client ──────────────────────────────
+const CONFIGURED = SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_ANON_KEY !== 'YOUR_SUPABASE_ANON_KEY';
+
+let supabase = null;
+if (CONFIGURED) {
+  supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
+/* ============================================================
+   1. STATE
    ============================================================ */
 
-const KEYS = {
-  entries:   'solace_entries',
-  todos:     'solace_todos',
-  theme:     'solace_theme',
-  passcode:  'solace_passcode',
-  pinEnabled:'solace_pin_enabled',
+// LocalStorage keys (only for UI prefs — NOT app data)
+const LS = {
+  theme:      'solace_theme',
+  pinEnabled: 'solace_pin_enabled',
+  passcode:   'solace_passcode',
 };
 
-/** Load JSON from localStorage with a fallback */
-function load(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch { return fallback; }
-}
-
-/** Save JSON to localStorage */
-function save(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-/* ── In-memory working state ── */
 let state = {
-  entries: load(KEYS.entries, []),   // diary entries
-  todos:   load(KEYS.todos,   []),   // todo items
-  currentPage: 'dashboard',
-  editingEntryId: null,
-  diaryFilter: '',
-  todoFilter: 'all',
-  calYear: new Date().getFullYear(),
-  calMonth: new Date().getMonth(),
+  user:            null,          // Supabase user object
+  entries:         [],            // diary entries (in-memory, loaded from DB)
+  todos:           [],            // todos        (in-memory, loaded from DB)
+  currentPage:     'dashboard',
+  editingEntryId:  null,
+  diaryFilter:     '',
+  todoFilter:      'all',
+  calYear:         new Date().getFullYear(),
+  calMonth:        new Date().getMonth(),
   calSelectedDate: null,
-  autosaveTimer: null,
+  autosaveTimer:   null,
+  syncing:         false,
 };
 
 /* ============================================================
-   2. INIT & BOOT
+   2. BOOT
    ============================================================ */
 
-document.addEventListener('DOMContentLoaded', () => {
-  lucide.createIcons();          // render all lucide icons
-  applyTheme();                  // apply saved theme first
-  checkLock();                   // show lock screen if PIN enabled
+document.addEventListener('DOMContentLoaded', async () => {
+  lucide.createIcons();
+  applyTheme();
+
+  // Show config notice if keys not set
+  if (!CONFIGURED) {
+    showAuthScreen();
+    document.getElementById('configNotice').classList.remove('hidden');
+    document.getElementById('loginForm').classList.remove('active');
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('signupForm').style.display = 'none';
+    document.querySelector('.auth-tabs').style.display = 'none';
+    lucide.createIcons();
+    return;
+  }
+
+  showLoadingOverlay();
+
+  // Listen for auth state changes (handles refresh, tab reopen, etc.)
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      state.user = session.user;
+      await bootApp();
+    } else if (event === 'SIGNED_OUT') {
+      state.user = null;
+      resetAppState();
+      hideLoadingOverlay();
+      showAuthScreen();
+    } else if (event === 'PASSWORD_RECOVERY') {
+      hideLoadingOverlay();
+      showAuthScreen();
+    }
+  });
+
+  // Check existing session
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    hideLoadingOverlay();
+    showAuthScreen();
+  }
+  // If session exists, onAuthStateChange will fire SIGNED_IN automatically
+
+  initOfflineDetection();
+});
+
+async function bootApp() {
+  hideAuthScreen();
+  checkLock();
+
+  // Load data from Supabase
+  await Promise.all([loadEntries(), loadTodos()]);
+
+  // Init all modules
   initNav();
   initDashboard();
   initDiary();
@@ -73,62 +134,241 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettings();
   updateGreeting();
   updateStats();
-});
+  updateUserUI();
+  subscribeRealtime();
+
+  hideLoadingOverlay();
+  document.getElementById('app').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function resetAppState() {
+  state.entries        = [];
+  state.todos          = [];
+  state.user           = null;
+  state.editingEntryId = null;
+}
+
+/* ── Loading overlay ── */
+function showLoadingOverlay() {
+  if (document.getElementById('loadingOverlay')) return;
+  const el = document.createElement('div');
+  el.id = 'loadingOverlay';
+  el.className = 'loading-overlay';
+  el.innerHTML = `
+    <div class="logo">
+      <span class="logo-icon"><i data-lucide="feather"></i></span>
+      <span class="logo-text">Solace</span>
+    </div>
+    <div class="loading-dots"><span></span><span></span><span></span></div>`;
+  document.body.appendChild(el);
+  lucide.createIcons();
+}
+
+function hideLoadingOverlay() {
+  const el = document.getElementById('loadingOverlay');
+  if (el) el.remove();
+}
+
+/* ── Offline detection ── */
+function initOfflineDetection() {
+  const banner = document.createElement('div');
+  banner.className = 'offline-banner';
+  banner.id = 'offlineBanner';
+  banner.textContent = '⚡ You are offline — changes will sync when reconnected';
+  document.body.prepend(banner);
+
+  window.addEventListener('offline', () => banner.classList.add('show'));
+  window.addEventListener('online',  () => {
+    banner.classList.remove('show');
+    // Re-sync when back online
+    if (state.user) { loadEntries(); loadTodos(); }
+  });
+}
 
 /* ============================================================
-   3. NAVIGATION
+   3. AUTH
+   ============================================================ */
+
+function showAuthScreen() {
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('app').classList.add('hidden');
+  initAuthUI();
+}
+
+function hideAuthScreen() {
+  document.getElementById('authScreen').style.display = 'none';
+}
+
+function initAuthUI() {
+  // Tab switching
+  document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById(`${tab.dataset.tab}Form`).classList.add('active');
+    });
+  });
+
+  // Sign In
+  document.getElementById('loginBtn').addEventListener('click', handleLogin);
+  document.getElementById('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+
+  // Sign Up
+  document.getElementById('signupBtn').addEventListener('click', handleSignup);
+  document.getElementById('signupPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleSignup(); });
+
+  // Forgot password
+  document.getElementById('forgotBtn').addEventListener('click', handleForgotPassword);
+}
+
+async function handleLogin() {
+  const email    = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl    = document.getElementById('loginError');
+
+  if (!email || !password) { showAuthError(errEl, 'Please fill in all fields.'); return; }
+
+  setAuthLoading('login', true);
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  setAuthLoading('login', false);
+
+  if (error) {
+    showAuthError(errEl, friendlyAuthError(error.message));
+  } else {
+    errEl.classList.add('hidden');
+  }
+}
+
+async function handleSignup() {
+  const name     = document.getElementById('signupName').value.trim();
+  const email    = document.getElementById('signupEmail').value.trim();
+  const password = document.getElementById('signupPassword').value;
+  const errEl    = document.getElementById('signupError');
+  const okEl     = document.getElementById('signupSuccess');
+
+  if (!email || !password) { showAuthError(errEl, 'Please fill in all fields.'); return; }
+  if (password.length < 6) { showAuthError(errEl, 'Password must be at least 6 characters.'); return; }
+
+  setAuthLoading('signup', true);
+  const { error } = await supabase.auth.signUp({
+    email, password,
+    options: { data: { full_name: name } }
+  });
+  setAuthLoading('signup', false);
+
+  if (error) {
+    showAuthError(errEl, friendlyAuthError(error.message));
+  } else {
+    errEl.classList.add('hidden');
+    okEl.textContent = '✓ Account created! Check your email to confirm, then sign in.';
+    okEl.classList.remove('hidden');
+  }
+}
+
+async function handleForgotPassword() {
+  const email = document.getElementById('loginEmail').value.trim();
+  if (!email) { showAuthError(document.getElementById('loginError'), 'Enter your email address first.'); return; }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.href
+  });
+  if (error) {
+    showAuthError(document.getElementById('loginError'), error.message);
+  } else {
+    showToast('📧 Password reset email sent!');
+  }
+}
+
+async function handleSignOut() {
+  await supabase.auth.signOut();
+  // onAuthStateChange will handle the rest
+}
+
+function showAuthError(el, msg) {
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function setAuthLoading(form, loading) {
+  const btn  = document.getElementById(`${form}Btn`);
+  const text = document.getElementById(`${form}BtnText`);
+  const spin = document.getElementById(`${form}Spinner`);
+  btn.disabled = loading;
+  text.textContent = loading ? (form === 'login' ? 'Signing in…' : 'Creating account…') : (form === 'login' ? 'Sign In' : 'Create Account');
+  spin.classList.toggle('hidden', !loading);
+}
+
+function friendlyAuthError(msg) {
+  if (msg.includes('Invalid login credentials')) return 'Incorrect email or password.';
+  if (msg.includes('Email not confirmed'))       return 'Please confirm your email first.';
+  if (msg.includes('User already registered'))   return 'An account with this email already exists.';
+  if (msg.includes('Password should be'))        return 'Password must be at least 6 characters.';
+  return msg;
+}
+
+function updateUserUI() {
+  const user = state.user;
+  if (!user) return;
+
+  const name  = user.user_metadata?.full_name || user.email?.split('@')[0] || 'User';
+  const email = user.email || '';
+  const init  = (name[0] || '?').toUpperCase();
+
+  document.getElementById('userAvatar').textContent = init;
+  document.getElementById('userName').textContent   = name;
+  document.getElementById('userEmail').textContent  = email;
+  document.getElementById('settingsEmail').textContent = email;
+
+  // Sign out buttons
+  document.getElementById('signOutBtn').addEventListener('click', handleSignOut);
+  document.getElementById('settingsSignOut').addEventListener('click', handleSignOut);
+}
+
+/* ============================================================
+   4. NAVIGATION
    ============================================================ */
 
 function initNav() {
-  // Sidebar nav clicks
   document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', (e) => {
+    item.addEventListener('click', e => {
       e.preventDefault();
-      const page = item.dataset.page;
-      navigateTo(page);
+      navigateTo(item.dataset.page);
       closeSidebar();
     });
   });
 
-  // "View All" text-btns on dashboard
   document.querySelectorAll('.text-btn[data-page]').forEach(btn => {
     btn.addEventListener('click', () => navigateTo(btn.dataset.page));
   });
 
-  // Mobile menu
   document.getElementById('menuBtn').addEventListener('click', openSidebar);
   document.getElementById('sidebarClose').addEventListener('click', closeSidebar);
   document.getElementById('sidebarOverlay').addEventListener('click', closeSidebar);
-
-  // Lock button in topbar
   document.getElementById('lockBtn').addEventListener('click', () => {
-    if (load(KEYS.pinEnabled, false)) lockApp();
+    if (localStorage.getItem(LS.pinEnabled) === 'true') lockApp();
   });
 }
 
 function navigateTo(page) {
-  // Deactivate all
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
-  // Activate target
   const pageEl = document.getElementById(`page-${page}`);
   if (pageEl) pageEl.classList.add('active');
+  const navEl  = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (navEl)  navEl.classList.add('active');
 
-  const navEl = document.querySelector(`.nav-item[data-page="${page}"]`);
-  if (navEl) navEl.classList.add('active');
-
-  // Update topbar title
   const titles = { dashboard:'Dashboard', diary:'My Diary', todo:'Tasks', calendar:'Calendar', settings:'Settings' };
   document.getElementById('pageTitle').textContent = titles[page] || page;
-
   state.currentPage = page;
 
-  // Refresh page-specific data
   if (page === 'dashboard') { updateStats(); renderDashTasks(); }
   if (page === 'diary')     renderEntries();
   if (page === 'todo')      renderTodos();
   if (page === 'calendar')  renderCalendar();
+  if (page === 'settings')  syncSettingsUI();
 }
 
 function openSidebar() {
@@ -142,26 +382,24 @@ function closeSidebar() {
 }
 
 /* ============================================================
-   4. LOCK / PIN SCREEN
+   5. LOCK / PIN
    ============================================================ */
 
 let pinBuffer = '';
 
 function checkLock() {
-  const enabled = load(KEYS.pinEnabled, false);
-  if (enabled && load(KEYS.passcode, null)) {
-    showLockScreen();
-  }
+  const enabled = localStorage.getItem(LS.pinEnabled) === 'true';
+  if (enabled && localStorage.getItem(LS.passcode)) showLockScreen();
 }
 
 function showLockScreen() {
   document.getElementById('lockScreen').classList.remove('hidden');
-  document.getElementById('app').style.display = 'none';
+  document.getElementById('app').classList.add('hidden');
 }
 
 function hideLockScreen() {
   document.getElementById('lockScreen').classList.add('hidden');
-  document.getElementById('app').style.display = '';
+  document.getElementById('app').classList.remove('hidden');
 }
 
 function lockApp() {
@@ -171,7 +409,6 @@ function lockApp() {
   showLockScreen();
 }
 
-// PIN pad
 document.querySelectorAll('.pin-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const val = btn.dataset.val;
@@ -194,7 +431,7 @@ function updatePinDots() {
 }
 
 function submitPin() {
-  const saved = load(KEYS.passcode, null);
+  const saved = localStorage.getItem(LS.passcode);
   if (pinBuffer === saved) {
     hideLockScreen();
     pinBuffer = '';
@@ -202,25 +439,22 @@ function submitPin() {
     document.getElementById('pinError').classList.add('hidden');
   } else {
     document.getElementById('pinError').classList.remove('hidden');
-    document.getElementById('lockCard')?.classList.add('shake');
+    const card = document.querySelector('.lock-card');
+    card.style.transition = 'transform 0.1s';
+    card.style.transform = 'translateX(8px)';
+    setTimeout(() => { card.style.transform = 'translateX(-8px)'; }, 100);
+    setTimeout(() => { card.style.transform = ''; }, 200);
     pinBuffer = '';
     updatePinDots();
-    // Shake animation via temporary class
-    const card = document.querySelector('.lock-card');
-    card.style.animation = 'none';
-    card.style.transform = 'translateX(10px)';
-    setTimeout(() => { card.style.transform = ''; card.style.transition = 'transform 0.15s'; }, 100);
-    setTimeout(() => { card.style.transform = 'translateX(-8px)'; }, 200);
-    setTimeout(() => { card.style.transform = ''; }, 300);
   }
 }
 
 /* ============================================================
-   5. THEME
+   6. THEME
    ============================================================ */
 
 function applyTheme() {
-  const dark = load(KEYS.theme, false);
+  const dark = localStorage.getItem(LS.theme) === 'true';
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   updateThemeUI(dark);
 }
@@ -228,94 +462,80 @@ function applyTheme() {
 function toggleTheme() {
   const isDark = document.documentElement.dataset.theme === 'dark';
   const newDark = !isDark;
-  save(KEYS.theme, newDark);
+  localStorage.setItem(LS.theme, newDark);
   document.documentElement.dataset.theme = newDark ? 'dark' : 'light';
   updateThemeUI(newDark);
 }
 
 function updateThemeUI(isDark) {
-  const icon = document.getElementById('themeIcon');
+  const icon  = document.getElementById('themeIcon');
   const label = document.getElementById('themeLabel');
-  const toggle = document.getElementById('darkModeToggle');
+  const tog   = document.getElementById('darkModeToggle');
   if (icon)  { icon.dataset.lucide = isDark ? 'sun' : 'moon'; lucide.createIcons(); }
   if (label) label.textContent = isDark ? 'Light Mode' : 'Dark Mode';
-  if (toggle) toggle.checked = isDark;
+  if (tog)   tog.checked = isDark;
 }
 
 document.getElementById('themeToggle').addEventListener('click', toggleTheme);
 
 /* ============================================================
-   6. DASHBOARD
+   7. DASHBOARD
    ============================================================ */
 
 function initDashboard() {
   document.getElementById('quickSaveEntry').addEventListener('click', quickSaveDiary);
   document.getElementById('quickAddTask').addEventListener('click', quickAddTask);
-  document.getElementById('quickTaskInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') quickAddTask();
-  });
+  document.getElementById('quickTaskInput').addEventListener('keydown', e => { if (e.key === 'Enter') quickAddTask(); });
 }
 
 function updateGreeting() {
   const hour = new Date().getHours();
-  let greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const emoji = hour < 12 ? '✨' : hour < 17 ? '☀️' : '🌙';
   document.getElementById('greeting').textContent = `${greet} ${emoji}`;
-
-  const now = new Date();
-  document.getElementById('greetingDate').textContent = now.toLocaleDateString('en-US', {
+  document.getElementById('greetingDate').textContent = new Date().toLocaleDateString('en-US', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   });
 }
 
 function updateStats() {
   const today = todayStr();
-  const entries = state.entries;
-  const todos   = state.todos;
-
-  const completedToday = todos.filter(t => t.done && t.completedDate === today).length;
-  const pending        = todos.filter(t => !t.done).length;
-  const totalEntries   = entries.length;
-
-  // Streak: count consecutive days with an entry
-  const streak = calcStreak(entries);
-
+  const completedToday = state.todos.filter(t => t.done && t.completed_date === today).length;
+  const pending        = state.todos.filter(t => !t.done).length;
   document.getElementById('statCompleted').textContent = completedToday;
   document.getElementById('statPending').textContent   = pending;
-  document.getElementById('statEntries').textContent   = totalEntries;
-  document.getElementById('statStreak').textContent    = streak;
+  document.getElementById('statEntries').textContent   = state.entries.length;
+  document.getElementById('statStreak').textContent    = calcStreak(state.entries);
 }
 
 function calcStreak(entries) {
   if (!entries.length) return 0;
-  const dateset = new Set(entries.map(e => e.date.slice(0,10)));
+  const dateset = new Set(entries.map(e => (e.created_at || e.date || '').slice(0, 10)));
   let streak = 0;
   const today = new Date();
   for (let i = 0; i < 365; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    if (dateset.has(d.toISOString().slice(0,10))) streak++;
+    if (dateset.has(d.toISOString().slice(0, 10))) streak++;
     else break;
   }
   return streak;
 }
 
-function quickSaveDiary() {
+async function quickSaveDiary() {
   const text = document.getElementById('quickDiaryText').value.trim();
   if (!text) { showToast('Write something first!'); return; }
-  const entry = createEntry('', text, '');
-  state.entries.unshift(entry);
-  save(KEYS.entries, state.entries);
+  await insertEntry({ title: '', text, mood: '' });
   document.getElementById('quickDiaryText').value = '';
   updateStats();
   showToast('✍️ Entry saved!');
 }
 
-function quickAddTask() {
+async function quickAddTask() {
   const input = document.getElementById('quickTaskInput');
-  const text = input.value.trim();
+  const text  = input.value.trim();
   if (!text) return;
-  addTodo(text, 'normal');
+  await insertTodo(text, 'normal');
   input.value = '';
   renderDashTasks();
   updateStats();
@@ -329,37 +549,95 @@ function renderDashTasks() {
     list.innerHTML = '<li style="color:var(--text-3);font-size:0.85rem;padding:8px 0;">All caught up! 🎉</li>';
     return;
   }
-  pending.forEach(todo => {
-    list.appendChild(buildTaskItem(todo, true));
-  });
+  pending.forEach(todo => list.appendChild(buildTaskItem(todo, true)));
   lucide.createIcons();
 }
 
 /* ============================================================
-   7. DIARY
+   8. DIARY — Supabase CRUD
    ============================================================ */
 
+/* ── Load all entries for this user ── */
+async function loadEntries() {
+  setSyncState('syncing');
+  const { data, error } = await supabase
+    .from('diary_entries')
+    .select('*')
+    .eq('user_id', state.user.id)
+    .order('created_at', { ascending: false });
+
+  if (error) { console.error('loadEntries:', error); setSyncState('error'); return; }
+  state.entries = data || [];
+  setSyncState('ok');
+}
+
+/* ── Insert new entry ── */
+async function insertEntry({ title, text, mood }) {
+  setSyncState('syncing');
+  const { data, error } = await supabase
+    .from('diary_entries')
+    .insert([{ user_id: state.user.id, title, text, mood }])
+    .select()
+    .single();
+
+  if (error) { console.error('insertEntry:', error); setSyncState('error'); showToast('❌ Save failed'); return null; }
+  state.entries.unshift(data);
+  setSyncState('ok');
+  return data;
+}
+
+/* ── Update existing entry ── */
+async function updateEntry(id, { title, text, mood }) {
+  setSyncState('syncing');
+  const { data, error } = await supabase
+    .from('diary_entries')
+    .update({ title, text, mood, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('user_id', state.user.id)
+    .select()
+    .single();
+
+  if (error) { console.error('updateEntry:', error); setSyncState('error'); showToast('❌ Update failed'); return null; }
+  const idx = state.entries.findIndex(e => e.id === id);
+  if (idx !== -1) state.entries[idx] = data;
+  setSyncState('ok');
+  return data;
+}
+
+/* ── Delete entry ── */
+async function deleteEntryDB(id) {
+  setSyncState('syncing');
+  const { error } = await supabase
+    .from('diary_entries')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', state.user.id);
+
+  if (error) { console.error('deleteEntry:', error); setSyncState('error'); showToast('❌ Delete failed'); return false; }
+  state.entries = state.entries.filter(e => e.id !== id);
+  setSyncState('ok');
+  return true;
+}
+
+/* ── Diary UI ── */
 function initDiary() {
   document.getElementById('newEntryBtn').addEventListener('click', openNewEditor);
   document.getElementById('cancelEntry').addEventListener('click', closeEditor);
   document.getElementById('saveEntry').addEventListener('click', saveCurrentEntry);
-  document.getElementById('diarySearch').addEventListener('input', (e) => {
+  document.getElementById('diarySearch').addEventListener('input', e => {
     state.diaryFilter = e.target.value.toLowerCase();
     renderEntries();
   });
-
-  // Autosave on textarea input
   document.getElementById('entryText').addEventListener('input', scheduleAutosave);
   document.getElementById('entryTitle').addEventListener('input', scheduleAutosave);
-
   renderEntries();
 }
 
 function openNewEditor() {
   state.editingEntryId = null;
   document.getElementById('entryTitle').value = '';
-  document.getElementById('entryText').value = '';
-  document.getElementById('entryMood').value = '';
+  document.getElementById('entryText').value  = '';
+  document.getElementById('entryMood').value  = '';
   document.getElementById('editorDate').textContent = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
@@ -371,9 +649,9 @@ function openEditEditor(id) {
   if (!entry) return;
   state.editingEntryId = id;
   document.getElementById('entryTitle').value = entry.title || '';
-  document.getElementById('entryText').value = entry.text || '';
-  document.getElementById('entryMood').value = entry.mood || '';
-  document.getElementById('editorDate').textContent = new Date(entry.date).toLocaleDateString('en-US', {
+  document.getElementById('entryText').value  = entry.text  || '';
+  document.getElementById('entryMood').value  = entry.mood  || '';
+  document.getElementById('editorDate').textContent = new Date(entry.created_at).toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
   showEditor();
@@ -381,10 +659,9 @@ function openEditEditor(id) {
 }
 
 function showEditor() {
-  const editor = document.getElementById('entryEditor');
-  editor.classList.remove('hidden');
+  document.getElementById('entryEditor').classList.remove('hidden');
   document.getElementById('autosaveHint').textContent = '';
-  editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  document.getElementById('entryEditor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function closeEditor() {
@@ -393,28 +670,28 @@ function closeEditor() {
   clearTimeout(state.autosaveTimer);
 }
 
-function saveCurrentEntry() {
+async function saveCurrentEntry() {
   const title = document.getElementById('entryTitle').value.trim();
   const text  = document.getElementById('entryText').value.trim();
   const mood  = document.getElementById('entryMood').value;
 
   if (!text) { showToast('Write something to save!'); return; }
 
+  const btn = document.getElementById('saveEntry');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
   if (state.editingEntryId) {
-    // Update existing
-    const idx = state.entries.findIndex(e => e.id === state.editingEntryId);
-    if (idx !== -1) {
-      state.entries[idx] = { ...state.entries[idx], title, text, mood, updatedAt: new Date().toISOString() };
-    }
+    await updateEntry(state.editingEntryId, { title, text, mood });
     showToast('✅ Entry updated!');
   } else {
-    // New entry
-    const entry = createEntry(title, text, mood);
-    state.entries.unshift(entry);
+    await insertEntry({ title, text, mood });
     showToast('✍️ Entry saved!');
   }
 
-  save(KEYS.entries, state.entries);
+  btn.disabled = false;
+  btn.textContent = 'Save Entry';
+
   closeEditor();
   renderEntries();
   updateStats();
@@ -424,23 +701,19 @@ function scheduleAutosave() {
   clearTimeout(state.autosaveTimer);
   document.getElementById('autosaveHint').textContent = 'Autosaving…';
   state.autosaveTimer = setTimeout(() => {
-    // Autosave to a draft key (not final entries)
-    const title = document.getElementById('entryTitle').value.trim();
     const text  = document.getElementById('entryText').value.trim();
+    const title = document.getElementById('entryTitle').value.trim();
     if (text) {
       localStorage.setItem('solace_draft', JSON.stringify({ title, text, ts: Date.now() }));
-      document.getElementById('autosaveHint').textContent = 'Draft autosaved';
+      document.getElementById('autosaveHint').textContent = 'Draft autosaved locally';
     }
   }, 1500);
 }
 
 function deleteEntry(id) {
-  showConfirm('Delete this diary entry? This cannot be undone.', () => {
-    state.entries = state.entries.filter(e => e.id !== id);
-    save(KEYS.entries, state.entries);
-    renderEntries();
-    updateStats();
-    showToast('🗑️ Entry deleted');
+  showConfirm('Delete this diary entry? This cannot be undone.', async () => {
+    const ok = await deleteEntryDB(id);
+    if (ok) { renderEntries(); updateStats(); showToast('🗑️ Entry deleted'); }
   });
 }
 
@@ -450,7 +723,6 @@ function renderEntries() {
   const filter = state.diaryFilter;
 
   let entries = state.entries;
-
   if (filter) {
     entries = entries.filter(e =>
       (e.title && e.title.toLowerCase().includes(filter)) ||
@@ -473,15 +745,13 @@ function renderEntries() {
 
     const titleText = entry.title || 'Untitled Entry';
     const preview   = entry.text.slice(0, 180).replace(/\n/g, ' ');
-    const dateStr   = new Date(entry.date).toLocaleDateString('en-US', {
+    const dateStr   = new Date(entry.created_at).toLocaleDateString('en-US', {
       weekday: 'short', month: 'long', day: 'numeric', year: 'numeric'
     });
 
-    // Highlight search terms
-    const hl = (str) => {
+    const hl = str => {
       if (!filter) return str;
-      const re = new RegExp(`(${escapeRegex(filter)})`, 'gi');
-      return str.replace(re, '<mark class="highlight">$1</mark>');
+      return str.replace(new RegExp(`(${escapeRegex(filter)})`, 'gi'), '<mark class="highlight">$1</mark>');
     };
 
     card.innerHTML = `
@@ -492,33 +762,14 @@ function renderEntries() {
       <div class="entry-card-date">${dateStr}</div>
       <div class="entry-card-preview">${hl(preview)}${entry.text.length > 180 ? '…' : ''}</div>
       <div class="entry-card-actions">
-        <button class="entry-action-btn edit-btn">
-          <i data-lucide="pencil"></i> Edit
-        </button>
-        <button class="entry-action-btn danger del-btn">
-          <i data-lucide="trash-2"></i> Delete
-        </button>
-        <button class="entry-action-btn export-single-btn">
-          <i data-lucide="download"></i> PDF
-        </button>
-      </div>
-    `;
+        <button class="entry-action-btn edit-btn"><i data-lucide="pencil"></i> Edit</button>
+        <button class="entry-action-btn danger del-btn"><i data-lucide="trash-2"></i> Delete</button>
+        <button class="entry-action-btn export-single-btn"><i data-lucide="download"></i> PDF</button>
+      </div>`;
 
-    card.querySelector('.edit-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      openEditEditor(entry.id);
-    });
-
-    card.querySelector('.del-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteEntry(entry.id);
-    });
-
-    card.querySelector('.export-single-btn').addEventListener('click', (e) => {
-      e.stopPropagation();
-      exportSingleEntry(entry);
-    });
-
+    card.querySelector('.edit-btn').addEventListener('click', e => { e.stopPropagation(); openEditEditor(entry.id); });
+    card.querySelector('.del-btn').addEventListener('click', e => { e.stopPropagation(); deleteEntry(entry.id); });
+    card.querySelector('.export-single-btn').addEventListener('click', e => { e.stopPropagation(); exportSingleEntry(entry); });
     card.addEventListener('click', () => openEditEditor(entry.id));
 
     list.appendChild(card);
@@ -527,38 +778,84 @@ function renderEntries() {
   lucide.createIcons();
 }
 
-function createEntry(title, text, mood) {
-  return {
-    id:        generateId(),
-    title:     title,
-    text:      text,
-    mood:      mood,
-    date:      new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-}
-
 /* ============================================================
-   8. TODO / TASKS
+   9. TODO — Supabase CRUD
    ============================================================ */
 
+async function loadTodos() {
+  const { data, error } = await supabase
+    .from('todos')
+    .select('*')
+    .eq('user_id', state.user.id)
+    .order('created_at', { ascending: false });
+
+  if (error) { console.error('loadTodos:', error); return; }
+  state.todos = data || [];
+}
+
+async function insertTodo(text, priority) {
+  const { data, error } = await supabase
+    .from('todos')
+    .insert([{ user_id: state.user.id, text, priority, done: false }])
+    .select()
+    .single();
+
+  if (error) { console.error('insertTodo:', error); showToast('❌ Save failed'); return null; }
+  state.todos.unshift(data);
+  setSyncState('ok');
+  return data;
+}
+
+async function toggleTodoDB(id) {
+  const todo = state.todos.find(t => t.id === id);
+  if (!todo) return;
+  const newDone = !todo.done;
+  const { data, error } = await supabase
+    .from('todos')
+    .update({ done: newDone, completed_date: newDone ? todayStr() : null })
+    .eq('id', id)
+    .eq('user_id', state.user.id)
+    .select()
+    .single();
+
+  if (error) { console.error('toggleTodo:', error); return; }
+  const idx = state.todos.findIndex(t => t.id === id);
+  if (idx !== -1) state.todos[idx] = data;
+  updateStats();
+  renderTodos();
+  if (state.currentPage === 'dashboard') renderDashTasks();
+}
+
+async function deleteTodoDB(id) {
+  const { error } = await supabase
+    .from('todos')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', state.user.id);
+
+  if (error) { console.error('deleteTodo:', error); showToast('❌ Delete failed'); return; }
+  state.todos = state.todos.filter(t => t.id !== id);
+  renderTodos();
+  updateStats();
+  if (state.currentPage === 'dashboard') renderDashTasks();
+}
+
 function initTodo() {
-  document.getElementById('addTodoBtn').addEventListener('click', () => {
-    const input = document.getElementById('todoInput');
+  document.getElementById('addTodoBtn').addEventListener('click', async () => {
+    const input    = document.getElementById('todoInput');
     const priority = document.getElementById('todoPriority').value;
-    const text = input.value.trim();
+    const text     = input.value.trim();
     if (!text) return;
-    addTodo(text, priority);
     input.value = '';
+    await insertTodo(text, priority);
     renderTodos();
     updateStats();
   });
 
-  document.getElementById('todoInput').addEventListener('keydown', (e) => {
+  document.getElementById('todoInput').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('addTodoBtn').click();
   });
 
-  // Filter buttons
   document.querySelectorAll('.filter-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -571,54 +868,16 @@ function initTodo() {
   renderTodos();
 }
 
-function addTodo(text, priority = 'normal') {
-  const todo = {
-    id:            generateId(),
-    text:          text,
-    done:          false,
-    priority:      priority,
-    createdAt:     new Date().toISOString(),
-    completedDate: null,
-  };
-  state.todos.unshift(todo);
-  save(KEYS.todos, state.todos);
-  return todo;
-}
-
-function toggleTodo(id) {
-  const todo = state.todos.find(t => t.id === id);
-  if (!todo) return;
-  todo.done = !todo.done;
-  todo.completedDate = todo.done ? todayStr() : null;
-  save(KEYS.todos, state.todos);
-  updateStats();
-  renderTodos();
-  if (state.currentPage === 'dashboard') renderDashTasks();
-}
-
-function deleteTodo(id) {
-  state.todos = state.todos.filter(t => t.id !== id);
-  save(KEYS.todos, state.todos);
-  renderTodos();
-  updateStats();
-  if (state.currentPage === 'dashboard') renderDashTasks();
-}
-
 function renderTodos() {
   const list  = document.getElementById('todoList');
   const empty = document.getElementById('todoEmpty');
-  let todos = state.todos;
+  let todos   = state.todos;
 
   if (state.todoFilter === 'pending')   todos = todos.filter(t => !t.done);
-  if (state.todoFilter === 'completed') todos = todos.filter(t => t.done);
+  if (state.todoFilter === 'completed') todos = todos.filter(t =>  t.done);
 
   list.innerHTML = '';
-
-  if (!todos.length) {
-    empty.classList.remove('hidden');
-    updateProgress();
-    return;
-  }
+  if (!todos.length) { empty.classList.remove('hidden'); updateProgress(); return; }
   empty.classList.add('hidden');
 
   todos.forEach(todo => list.appendChild(buildTaskItem(todo, false)));
@@ -629,11 +888,10 @@ function renderTodos() {
 function buildTaskItem(todo, compact) {
   const li = document.createElement('li');
   li.className = `task-item${todo.done ? ' done' : ''}`;
-  li.dataset.id = todo.id;
 
   const checkbox = document.createElement('div');
   checkbox.className = `task-checkbox${todo.done ? ' checked' : ''}`;
-  checkbox.addEventListener('click', () => toggleTodo(todo.id));
+  checkbox.addEventListener('click', () => toggleTodoDB(todo.id));
 
   const text = document.createElement('span');
   text.className = 'task-text';
@@ -646,13 +904,12 @@ function buildTaskItem(todo, compact) {
   const del = document.createElement('button');
   del.className = 'task-delete';
   del.innerHTML = '<i data-lucide="x"></i>';
-  del.addEventListener('click', () => deleteTodo(todo.id));
+  del.addEventListener('click', () => deleteTodoDB(todo.id));
 
   li.appendChild(checkbox);
   li.appendChild(text);
   if (!compact) li.appendChild(priority);
   li.appendChild(del);
-
   return li;
 }
 
@@ -666,7 +923,7 @@ function updateProgress() {
 }
 
 /* ============================================================
-   9. CALENDAR
+   10. CALENDAR
    ============================================================ */
 
 function initCalendar() {
@@ -675,7 +932,6 @@ function initCalendar() {
     if (state.calMonth < 0) { state.calMonth = 11; state.calYear--; }
     renderCalendar();
   });
-
   document.getElementById('calNext').addEventListener('click', () => {
     state.calMonth++;
     if (state.calMonth > 11) { state.calMonth = 0; state.calYear++; }
@@ -686,19 +942,12 @@ function initCalendar() {
 function renderCalendar() {
   const year  = state.calYear;
   const month = state.calMonth;
+  document.getElementById('calMonthLabel').textContent = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-  // Update header
-  document.getElementById('calMonthLabel').textContent = new Date(year, month, 1).toLocaleDateString('en-US', {
-    month: 'long', year: 'numeric'
-  });
-
-  // Build set of entry dates
-  const entryDates = new Set(state.entries.map(e => e.date.slice(0,10)));
-
+  const entryDates = new Set(state.entries.map(e => (e.created_at || '').slice(0, 10)));
   const grid = document.getElementById('calGrid');
   grid.innerHTML = '';
 
-  // Day-of-week headers
   ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
     const h = document.createElement('div');
     h.className = 'cal-day-header';
@@ -706,58 +955,42 @@ function renderCalendar() {
     grid.appendChild(h);
   });
 
-  const firstDay = new Date(year, month, 1).getDay();
+  const firstDay    = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const today = new Date();
-  const todayISO = today.toISOString().slice(0,10);
+  const todayISO    = new Date().toISOString().slice(0, 10);
 
-  // Blank cells before first day
   for (let i = 0; i < firstDay; i++) {
     const blank = document.createElement('div');
     blank.className = 'cal-day other-month';
-    // show prev month days
-    const prevLastDay = new Date(year, month, 0).getDate();
-    blank.textContent = prevLastDay - firstDay + i + 1;
+    blank.textContent = new Date(year, month, 0).getDate() - firstDay + i + 1;
     grid.appendChild(blank);
   }
 
-  // Month days
   for (let d = 1; d <= daysInMonth; d++) {
     const isoDate = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const dayEl = document.createElement('div');
     dayEl.className = 'cal-day';
     dayEl.textContent = d;
-
-    if (isoDate === todayISO) dayEl.classList.add('today');
-    if (entryDates.has(isoDate)) dayEl.classList.add('has-entry');
+    if (isoDate === todayISO)           dayEl.classList.add('today');
+    if (entryDates.has(isoDate))        dayEl.classList.add('has-entry');
     if (state.calSelectedDate === isoDate) dayEl.classList.add('selected');
-
-    dayEl.addEventListener('click', () => {
-      state.calSelectedDate = isoDate;
-      renderCalendar();
-      showCalDayEntries(isoDate);
-    });
-
+    dayEl.addEventListener('click', () => { state.calSelectedDate = isoDate; renderCalendar(); showCalDayEntries(isoDate); });
     grid.appendChild(dayEl);
   }
 
-  // Show entries for selected date
   if (state.calSelectedDate) showCalDayEntries(state.calSelectedDate);
 }
 
 function showCalDayEntries(isoDate) {
-  const panel = document.getElementById('calEntriesPanel');
   const titleEl = document.getElementById('calSelectedDate');
   const listEl  = document.getElementById('calDayEntries');
 
-  const displayDate = new Date(isoDate + 'T12:00:00').toLocaleDateString('en-US', {
+  titleEl.textContent = new Date(isoDate + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
-  titleEl.textContent = displayDate;
 
-  const dayEntries = state.entries.filter(e => e.date.slice(0,10) === isoDate);
+  const dayEntries = state.entries.filter(e => (e.created_at || '').slice(0, 10) === isoDate);
   listEl.innerHTML = '';
-
   if (!dayEntries.length) {
     listEl.innerHTML = '<p style="color:var(--text-3);font-size:0.85rem;">No entries for this day.</p>';
     return;
@@ -768,144 +1001,116 @@ function showCalDayEntries(isoDate) {
     mini.className = 'cal-entry-mini';
     mini.innerHTML = `
       <div class="cal-entry-mini-title">${entry.mood ? entry.mood + ' ' : ''}${entry.title || 'Untitled Entry'}</div>
-      <div class="cal-entry-mini-preview">${entry.text}</div>
-    `;
+      <div class="cal-entry-mini-preview">${entry.text}</div>`;
     mini.style.cursor = 'pointer';
-    mini.addEventListener('click', () => {
-      navigateTo('diary');
-      setTimeout(() => openEditEditor(entry.id), 100);
-    });
+    mini.addEventListener('click', () => { navigateTo('diary'); setTimeout(() => openEditEditor(entry.id), 100); });
     listEl.appendChild(mini);
   });
 }
 
 /* ============================================================
-   10. SETTINGS
+   11. SETTINGS
    ============================================================ */
 
 function initSettings() {
-  // Sync toggles to current state
-  document.getElementById('passcodeToggle').checked = load(KEYS.pinEnabled, false);
-  document.getElementById('darkModeToggle').checked = load(KEYS.theme, false);
+  syncSettingsUI();
 
-  // Passcode toggle
-  document.getElementById('passcodeToggle').addEventListener('change', function() {
-    const pinSetup = document.getElementById('pinSetup');
+  document.getElementById('passcodeToggle').addEventListener('change', function () {
     if (this.checked) {
-      pinSetup.classList.remove('hidden');
-      save(KEYS.pinEnabled, true);
+      document.getElementById('pinSetup').classList.remove('hidden');
+      localStorage.setItem(LS.pinEnabled, 'true');
     } else {
-      pinSetup.classList.add('hidden');
-      save(KEYS.pinEnabled, false);
-      save(KEYS.passcode, null);
+      document.getElementById('pinSetup').classList.add('hidden');
+      localStorage.removeItem(LS.pinEnabled);
+      localStorage.removeItem(LS.passcode);
       showToast('Passcode lock disabled');
     }
   });
 
-  // Save PIN
   document.getElementById('savePinBtn').addEventListener('click', () => {
     const pin = document.getElementById('newPinInput').value.trim();
-    if (pin.length !== 4 || !/^\d{4}$/.test(pin)) {
-      showToast('PIN must be exactly 4 digits');
-      return;
-    }
-    save(KEYS.passcode, pin);
-    save(KEYS.pinEnabled, true);
+    if (!/^\d{4}$/.test(pin)) { showToast('PIN must be exactly 4 digits'); return; }
+    localStorage.setItem(LS.passcode, pin);
+    localStorage.setItem(LS.pinEnabled, 'true');
     document.getElementById('pinSetMsg').classList.remove('hidden');
     document.getElementById('newPinInput').value = '';
     setTimeout(() => document.getElementById('pinSetMsg').classList.add('hidden'), 2500);
     showToast('🔒 PIN saved!');
   });
 
-  // Dark mode toggle (settings page)
-  document.getElementById('darkModeToggle').addEventListener('change', function() {
-    save(KEYS.theme, this.checked);
+  document.getElementById('darkModeToggle').addEventListener('change', function () {
+    localStorage.setItem(LS.theme, this.checked);
     document.documentElement.dataset.theme = this.checked ? 'dark' : 'light';
     updateThemeUI(this.checked);
   });
 
-  // Export PDF
   document.getElementById('exportPdfBtn').addEventListener('click', exportAllDiaryPDF);
 
-  // Clear data
   document.getElementById('clearDataBtn').addEventListener('click', () => {
-    showConfirm('⚠️ This will permanently delete ALL diary entries and tasks. Are you sure?', () => {
+    showConfirm('⚠️ Permanently delete ALL diary entries and tasks from the cloud? This cannot be undone.', async () => {
+      setSyncState('syncing');
+      await supabase.from('diary_entries').delete().eq('user_id', state.user.id);
+      await supabase.from('todos').delete().eq('user_id', state.user.id);
       state.entries = [];
       state.todos   = [];
-      save(KEYS.entries, []);
-      save(KEYS.todos,   []);
-      localStorage.removeItem('solace_draft');
+      setSyncState('ok');
       updateStats();
       renderEntries();
       renderTodos();
-      showToast('All data cleared');
+      showToast('All data cleared from cloud');
     });
   });
 }
 
+function syncSettingsUI() {
+  document.getElementById('passcodeToggle').checked = localStorage.getItem(LS.pinEnabled) === 'true';
+  document.getElementById('darkModeToggle').checked = localStorage.getItem(LS.theme) === 'true';
+  lucide.createIcons();
+}
+
 /* ============================================================
-   11. PDF EXPORT
+   12. PDF EXPORT
    ============================================================ */
 
 function exportAllDiaryPDF() {
   if (!state.entries.length) { showToast('No entries to export'); return; }
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const margin = 20, lineH = 7;
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
 
-  const margin = 20;
-  const lineH  = 7;
-  const pageW  = doc.internal.pageSize.getWidth();
-  const pageH  = doc.internal.pageSize.getHeight();
-  let y = margin;
-
-  // Title page
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(28);
   doc.setTextColor(122, 170, 138);
   doc.text('Solace', pageW / 2, 50, { align: 'center' });
-
   doc.setFontSize(14);
   doc.setTextColor(100, 100, 100);
   doc.text('My Personal Diary', pageW / 2, 62, { align: 'center' });
-
   doc.setFontSize(10);
   doc.text(`Exported on ${new Date().toLocaleDateString()}`, pageW / 2, 72, { align: 'center' });
   doc.text(`${state.entries.length} entries`, pageW / 2, 80, { align: 'center' });
 
-  // Entries
-  state.entries.forEach((entry, idx) => {
+  state.entries.forEach(entry => {
     doc.addPage();
-    y = margin;
-
-    // Date
+    let y = margin;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(150, 150, 150);
-    const dateStr = new Date(entry.date).toLocaleDateString('en-US', {
-      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-    });
-    doc.text(dateStr + (entry.mood ? '  ' + entry.mood : ''), margin, y);
+    doc.text(new Date(entry.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) + (entry.mood ? '  ' + entry.mood : ''), margin, y);
     y += lineH;
-
-    // Title
-    const title = entry.title || 'Untitled Entry';
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
     doc.setTextColor(44, 40, 37);
-    doc.text(title, margin, y);
+    doc.text(entry.title || 'Untitled Entry', margin, y);
     y += lineH * 1.6;
-
-    // Divider
     doc.setDrawColor(200, 200, 200);
     doc.line(margin, y, pageW - margin, y);
     y += lineH;
-
-    // Body text
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(11);
     doc.setTextColor(60, 56, 53);
-    const lines = doc.splitTextToSize(entry.text, pageW - margin * 2);
-    lines.forEach(line => {
+    doc.splitTextToSize(entry.text, pageW - margin * 2).forEach(line => {
       if (y + lineH > pageH - margin) { doc.addPage(); y = margin; }
       doc.text(line, margin, y);
       y += lineH;
@@ -919,40 +1124,58 @@ function exportAllDiaryPDF() {
 function exportSingleEntry(entry) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  const margin = 20;
-  const lineH  = 7;
-  const pageW  = doc.internal.pageSize.getWidth();
+  const margin = 20, lineH = 7;
+  const pageW = doc.internal.pageSize.getWidth();
   let y = margin;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(150, 150, 150);
-  const dateStr = new Date(entry.date).toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-  });
-  doc.text(dateStr, margin, y); y += lineH;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.setTextColor(44, 40, 37);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(150, 150, 150);
+  doc.text(new Date(entry.created_at).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }), margin, y); y += lineH;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(44, 40, 37);
   doc.text(entry.title || 'Untitled Entry', margin, y); y += lineH * 1.8;
-
-  doc.setDrawColor(200,200,200);
-  doc.line(margin, y, pageW - margin, y); y += lineH;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.setTextColor(60, 56, 53);
-  const lines = doc.splitTextToSize(entry.text, pageW - margin * 2);
-  lines.forEach(line => { doc.text(line, margin, y); y += lineH; });
-
-  const slug = (entry.title || 'entry').toLowerCase().replace(/[^a-z0-9]/g,'-').slice(0,30);
-  doc.save(`${slug}.pdf`);
+  doc.setDrawColor(200, 200, 200); doc.line(margin, y, pageW - margin, y); y += lineH;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(60, 56, 53);
+  doc.splitTextToSize(entry.text, pageW - margin * 2).forEach(line => { doc.text(line, margin, y); y += lineH; });
+  doc.save(`${(entry.title || 'entry').toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 30)}.pdf`);
   showToast('📄 Entry exported!');
 }
 
 /* ============================================================
-   12. TOAST & MODAL HELPERS
+   13. SYNC HELPERS & REALTIME
+   ============================================================ */
+
+function setSyncState(status) {
+  const dot    = document.getElementById('syncDot');
+  const icon   = document.getElementById('syncStatus');
+  const iconEl = document.getElementById('syncIcon');
+
+  state.syncing = status === 'syncing';
+
+  const map = {
+    ok:      { dot: '',        cls: '',        lucide: 'cloud',          title: 'All changes saved' },
+    syncing: { dot: 'syncing', cls: 'syncing', lucide: 'cloud-upload',   title: 'Syncing…' },
+    error:   { dot: 'error',   cls: 'error',   lucide: 'cloud-off',      title: 'Sync error' },
+  };
+
+  const s = map[status] || map.ok;
+  if (dot)    { dot.className = 'sync-dot' + (s.dot ? ' ' + s.dot : ''); }
+  if (icon)   { icon.className = 'sync-status' + (s.cls ? ' ' + s.cls : ''); icon.title = s.title; }
+  if (iconEl) { iconEl.dataset.lucide = s.lucide; lucide.createIcons(); }
+}
+
+/* Real-time subscription: re-fetch when another device writes */
+function subscribeRealtime() {
+  supabase
+    .channel('solace-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'diary_entries', filter: `user_id=eq.${state.user.id}` },
+      async () => { await loadEntries(); renderEntries(); updateStats(); if (state.currentPage === 'calendar') renderCalendar(); }
+    )
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'todos', filter: `user_id=eq.${state.user.id}` },
+      async () => { await loadTodos(); renderTodos(); updateStats(); renderDashTasks(); }
+    )
+    .subscribe();
+}
+
+/* ============================================================
+   14. TOAST, MODAL, UTILITIES
    ============================================================ */
 
 let toastTimer;
@@ -960,7 +1183,6 @@ function showToast(msg) {
   const toast = document.getElementById('toast');
   toast.textContent = msg;
   toast.classList.remove('hidden');
-  // force reflow
   void toast.offsetWidth;
   toast.classList.add('show');
   clearTimeout(toastTimer);
@@ -987,18 +1209,5 @@ document.getElementById('confirmCancel').addEventListener('click', () => {
   confirmCallback = null;
 });
 
-/* ============================================================
-   13. UTILITY HELPERS
-   ============================================================ */
-
-function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
-
-function todayStr() {
-  return new Date().toISOString().slice(0,10);
-}
-
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function escapeRegex(str) { return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }

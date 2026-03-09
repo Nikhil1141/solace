@@ -1194,3 +1194,328 @@ img { display: block; max-width: 100%; }
   .greeting { font-size: 1.5rem; }
   .page-heading { font-size: 1.4rem; }
 }
+
+/* ============================================================
+   SUPABASE AUTH & SYNC — Additional styles
+   ============================================================ */
+
+/* ── AUTH SCREEN ─────────────────────────────────────────── */
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 20px;
+  transition: background var(--t);
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow-md);
+  animation: fadeIn 0.35s ease;
+  transition: background var(--t), border-color var(--t);
+}
+
+.auth-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.auth-tagline {
+  text-align: center;
+  font-size: 0.88rem;
+  color: var(--text-2);
+  margin-bottom: 28px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  background: var(--bg-2);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 24px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 8px 0;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-2);
+  font-family: var(--font-body);
+  transition: background var(--t), color var(--t), box-shadow var(--t);
+}
+
+.auth-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+}
+
+.auth-form {
+  display: none;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auth-form.active { display: flex; }
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.form-group label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.form-group input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  outline: none;
+  color: var(--text);
+  transition: border-color var(--t), background var(--t);
+}
+
+.form-group input:focus { border-color: var(--primary); }
+.form-group input::placeholder { color: var(--text-3); }
+
+.auth-error {
+  font-size: 0.82rem;
+  color: var(--blush);
+  font-weight: 500;
+  background: var(--blush-light);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.auth-success {
+  font-size: 0.82rem;
+  color: var(--sage);
+  font-weight: 500;
+  background: var(--sage-light);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.btn-full { width: 100%; justify-content: center; padding: 11px 18px; }
+
+/* Spinner inside button */
+.spinner {
+  width: 16px; height: 16px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Config notice */
+.config-notice {
+  margin-top: 20px;
+  padding: 14px;
+  background: var(--amber-light);
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.config-notice svg { width: 20px; height: 20px; color: var(--amber); }
+.config-notice p   { font-size: 0.82rem; color: var(--text-2); line-height: 1.5; }
+.config-notice code {
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+/* ── USER CHIP (sidebar) ─────────────────────────────────── */
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  margin: 0 12px 8px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.user-avatar {
+  width: 34px; height: 34px;
+  border-radius: 10px;
+  background: var(--primary);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+.user-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.user-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #e8e2db;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-email {
+  font-size: 0.72rem;
+  color: var(--sidebar-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Sync dot on user chip */
+.sync-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--sage);
+  flex-shrink: 0;
+  transition: background var(--t);
+}
+.sync-dot.syncing { background: var(--amber); animation: pulse 1s ease-in-out infinite; }
+.sync-dot.error   { background: var(--blush); }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* ── SIGN OUT BUTTON (sidebar footer) ───────────────────── */
+.signout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  color: var(--blush);
+  font-size: 0.88rem;
+  font-family: var(--font-body);
+  margin-top: 4px;
+  transition: background var(--t);
+}
+.signout-btn svg { width: 16px; height: 16px; }
+.signout-btn:hover { background: rgba(224,138,138,0.1); }
+
+/* ── SYNC STATUS (topbar) ────────────────────────────────── */
+.sync-status {
+  width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px;
+  color: var(--sage);
+  transition: color var(--t);
+  cursor: default;
+}
+.sync-status svg { width: 18px; height: 18px; }
+.sync-status.syncing { color: var(--amber); animation: pulse 1s ease-in-out infinite; }
+.sync-status.error   { color: var(--blush); }
+
+/* ── SYNC BADGE (settings) ───────────────────────────────── */
+.sync-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--sage);
+  background: var(--sage-light);
+  padding: 5px 12px;
+  border-radius: 20px;
+}
+.sync-badge svg { width: 14px; height: 14px; }
+
+/* ── LOADING OVERLAY ─────────────────────────────────────── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 10000;
+}
+
+.loading-overlay .logo {
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.loading-dots span {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  animation: dotBounce 1.2s ease-in-out infinite;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dotBounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30%            { transform: translateY(-10px); opacity: 1; }
+}
+
+/* ── OFFLINE BANNER ──────────────────────────────────────── */
+.offline-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  background: var(--amber);
+  color: #fff;
+  text-align: center;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 6px 16px;
+  z-index: 5000;
+  transform: translateY(-100%);
+  transition: transform 0.3s ease;
+}
+.offline-banner.show { transform: translateY(0); }
+
+/* ── MISC HIDDEN OVERRIDE ────────────────────────────────── */
+.app-container.hidden { display: none !important; }
