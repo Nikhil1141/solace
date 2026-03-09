@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solace — Your Private Space</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Google Fonts: Playfair Display + DM Sans -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <!-- jsPDF for export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- ===================== LOCK SCREEN ===================== -->
+  <div id="lockScreen" class="lock-screen hidden">
+    <div class="lock-card">
+      <div class="lock-icon"><i data-lucide="lock"></i></div>
+      <h2 class="lock-title">Welcome back</h2>
+      <p class="lock-subtitle">Enter your passcode to unlock Solace</p>
+      <div class="pin-dots" id="pinDots">
+        <span></span><span></span><span></span><span></span>
+      </div>
+      <div class="pin-pad">
+        <button class="pin-btn" data-val="1">1</button>
+        <button class="pin-btn" data-val="2">2</button>
+        <button class="pin-btn" data-val="3">3</button>
+        <button class="pin-btn" data-val="4">4</button>
+        <button class="pin-btn" data-val="5">5</button>
+        <button class="pin-btn" data-val="6">6</button>
+        <button class="pin-btn" data-val="7">7</button>
+        <button class="pin-btn" data-val="8">8</button>
+        <button class="pin-btn" data-val="9">9</button>
+        <button class="pin-btn pin-clear" data-val="clear">⌫</button>
+        <button class="pin-btn" data-val="0">0</button>
+        <button class="pin-btn pin-submit" data-val="enter">↵</button>
+      </div>
+      <p id="pinError" class="pin-error hidden">Incorrect passcode. Try again.</p>
+    </div>
+  </div>
+
+  <!-- ===================== MAIN APP ===================== -->
+  <div id="app" class="app-container">
+
+    <!-- ---- SIDEBAR ---- -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon"><i data-lucide="feather"></i></span>
+          <span class="logo-text">Solace</span>
+        </div>
+        <button class="sidebar-close" id="sidebarClose"><i data-lucide="x"></i></button>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" data-page="dashboard">
+          <i data-lucide="layout-dashboard"></i>
+          <span>Dashboard</span>
+        </a>
+        <a href="#" class="nav-item" data-page="diary">
+          <i data-lucide="book-open"></i>
+          <span>Diary</span>
+        </a>
+        <a href="#" class="nav-item" data-page="todo">
+          <i data-lucide="check-square"></i>
+          <span>Tasks</span>
+        </a>
+        <a href="#" class="nav-item" data-page="calendar">
+          <i data-lucide="calendar"></i>
+          <span>Calendar</span>
+        </a>
+        <a href="#" class="nav-item" data-page="settings">
+          <i data-lucide="settings"></i>
+          <span>Settings</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <button class="theme-toggle" id="themeToggle">
+          <i data-lucide="moon" id="themeIcon"></i>
+          <span id="themeLabel">Dark Mode</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ---- MAIN CONTENT ---- -->
+    <main class="main-content">
+
+      <!-- Top Bar -->
+      <header class="topbar">
+        <button class="menu-btn" id="menuBtn"><i data-lucide="menu"></i></button>
+        <div class="topbar-title" id="pageTitle">Dashboard</div>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="lockBtn" title="Lock App"><i data-lucide="lock"></i></button>
+        </div>
+      </header>
+
+      <!-- ===================== PAGE: DASHBOARD ===================== -->
+      <section class="page active" id="page-dashboard">
+        <div class="page-content">
+
+          <div class="greeting-section">
+            <h1 class="greeting" id="greeting">Good morning ✨</h1>
+            <p class="greeting-date" id="greetingDate"></p>
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-card accent-sage">
+              <div class="stat-icon"><i data-lucide="check-circle-2"></i></div>
+              <div class="stat-body">
+                <span class="stat-value" id="statCompleted">0</span>
+                <span class="stat-label">Completed Today</span>
+              </div>
+            </div>
+            <div class="stat-card accent-blush">
+              <div class="stat-icon"><i data-lucide="circle-dashed"></i></div>
+              <div class="stat-body">
+                <span class="stat-value" id="statPending">0</span>
+                <span class="stat-label">Pending Tasks</span>
+              </div>
+            </div>
+            <div class="stat-card accent-sky">
+              <div class="stat-icon"><i data-lucide="book-marked"></i></div>
+              <div class="stat-body">
+                <span class="stat-value" id="statEntries">0</span>
+                <span class="stat-label">Diary Entries</span>
+              </div>
+            </div>
+            <div class="stat-card accent-amber">
+              <div class="stat-icon"><i data-lucide="flame"></i></div>
+              <div class="stat-body">
+                <span class="stat-value" id="statStreak">0</span>
+                <span class="stat-label">Day Streak</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <!-- Quick Diary Entry -->
+            <div class="dash-card">
+              <div class="dash-card-header">
+                <h3><i data-lucide="pen-line"></i> Quick Journal</h3>
+              </div>
+              <textarea id="quickDiaryText" class="quick-textarea" placeholder="What's on your mind today?"></textarea>
+              <button class="btn btn-primary" id="quickSaveEntry">Save Entry</button>
+            </div>
+
+            <!-- Today's Tasks -->
+            <div class="dash-card">
+              <div class="dash-card-header">
+                <h3><i data-lucide="list-checks"></i> Today's Tasks</h3>
+                <button class="text-btn" data-page="todo">View All</button>
+              </div>
+              <div class="quick-task-input">
+                <input type="text" id="quickTaskInput" placeholder="Add a quick task…" />
+                <button class="btn btn-sm btn-primary" id="quickAddTask"><i data-lucide="plus"></i></button>
+              </div>
+              <ul class="task-list" id="dashTaskList"></ul>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===================== PAGE: DIARY ===================== -->
+      <section class="page" id="page-diary">
+        <div class="page-content">
+
+          <div class="page-header">
+            <h2 class="page-heading">My Diary</h2>
+            <button class="btn btn-primary" id="newEntryBtn"><i data-lucide="plus"></i> New Entry</button>
+          </div>
+
+          <div class="search-bar">
+            <i data-lucide="search"></i>
+            <input type="text" id="diarySearch" placeholder="Search your entries…" />
+          </div>
+
+          <!-- Entry Editor (hidden by default) -->
+          <div class="entry-editor hidden" id="entryEditor">
+            <div class="editor-header">
+              <input type="text" id="entryTitle" placeholder="Entry title (optional)" class="editor-title-input" />
+              <div class="editor-meta">
+                <span id="editorDate"></span>
+                <div class="editor-mood">
+                  <span>Mood: </span>
+                  <select id="entryMood">
+                    <option value="">— select —</option>
+                    <option value="😊">😊 Happy</option>
+                    <option value="😌">😌 Calm</option>
+                    <option value="😔">😔 Sad</option>
+                    <option value="😤">😤 Frustrated</option>
+                    <option value="🥰">🥰 Grateful</option>
+                    <option value="😰">😰 Anxious</option>
+                    <option value="🤩">🤩 Excited</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <textarea id="entryText" class="entry-textarea" placeholder="Write freely. This is your safe space…"></textarea>
+            <div class="editor-actions">
+              <button class="btn btn-ghost" id="cancelEntry">Cancel</button>
+              <button class="btn btn-primary" id="saveEntry">Save Entry</button>
+            </div>
+            <div class="autosave-hint" id="autosaveHint"></div>
+          </div>
+
+          <!-- Entries List -->
+          <div id="diaryEntriesList" class="entries-list"></div>
+
+          <p class="empty-state hidden" id="diaryEmpty">
+            <i data-lucide="feather"></i><br>
+            No entries yet. Start writing your story.
+          </p>
+
+        </div>
+      </section>
+
+      <!-- ===================== PAGE: TODO ===================== -->
+      <section class="page" id="page-todo">
+        <div class="page-content">
+
+          <div class="page-header">
+            <h2 class="page-heading">Tasks</h2>
+          </div>
+
+          <div class="todo-input-row">
+            <input type="text" id="todoInput" placeholder="What needs to be done?" class="todo-main-input" />
+            <select id="todoPriority" class="priority-select">
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="low">Low</option>
+            </select>
+            <button class="btn btn-primary" id="addTodoBtn"><i data-lucide="plus"></i> Add</button>
+          </div>
+
+          <div class="todo-filters">
+            <button class="filter-btn active" data-filter="all">All</button>
+            <button class="filter-btn" data-filter="pending">Pending</button>
+            <button class="filter-btn" data-filter="completed">Completed</button>
+          </div>
+
+          <div class="todo-progress">
+            <div class="progress-label">
+              <span id="todoProgressLabel">0 of 0 completed</span>
+              <span id="todoProgressPct">0%</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" id="todoProgressFill"></div></div>
+          </div>
+
+          <ul class="task-list full" id="todoList"></ul>
+
+          <p class="empty-state hidden" id="todoEmpty">
+            <i data-lucide="check-circle-2"></i><br>
+            No tasks here. You're all clear!
+          </p>
+
+        </div>
+      </section>
+
+      <!-- ===================== PAGE: CALENDAR ===================== -->
+      <section class="page" id="page-calendar">
+        <div class="page-content">
+
+          <div class="page-header">
+            <h2 class="page-heading">Calendar</h2>
+          </div>
+
+          <div class="calendar-wrapper">
+            <div class="cal-nav">
+              <button class="icon-btn" id="calPrev"><i data-lucide="chevron-left"></i></button>
+              <h3 id="calMonthLabel"></h3>
+              <button class="icon-btn" id="calNext"><i data-lucide="chevron-right"></i></button>
+            </div>
+            <div class="cal-grid" id="calGrid"></div>
+          </div>
+
+          <div class="cal-entries-panel" id="calEntriesPanel">
+            <h4 id="calSelectedDate"></h4>
+            <div id="calDayEntries"></div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ===================== PAGE: SETTINGS ===================== -->
+      <section class="page" id="page-settings">
+        <div class="page-content">
+
+          <div class="page-header">
+            <h2 class="page-heading">Settings</h2>
+          </div>
+
+          <div class="settings-group">
+            <h3 class="settings-group-title">Privacy & Security</h3>
+
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Passcode Lock</span>
+                <span class="setting-desc">Require a 4-digit PIN to open the app</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="passcodeToggle" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="pin-setup hidden" id="pinSetup">
+              <p class="pin-setup-label">Set a new 4-digit PIN:</p>
+              <input type="password" id="newPinInput" maxlength="4" placeholder="Enter 4-digit PIN" class="pin-input" />
+              <button class="btn btn-primary btn-sm" id="savePinBtn">Save PIN</button>
+              <p class="pin-set-msg hidden" id="pinSetMsg">✓ PIN saved successfully</p>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3 class="settings-group-title">Appearance</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Dark Mode</span>
+                <span class="setting-desc">Switch between light and dark themes</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="darkModeToggle" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3 class="settings-group-title">Data</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Export Diary as PDF</span>
+                <span class="setting-desc">Download all your journal entries</span>
+              </div>
+              <button class="btn btn-secondary" id="exportPdfBtn"><i data-lucide="download"></i> Export</button>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-name">Clear All Data</span>
+                <span class="setting-desc">Permanently delete all entries and tasks</span>
+              </div>
+              <button class="btn btn-danger" id="clearDataBtn"><i data-lucide="trash-2"></i> Clear</button>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3 class="settings-group-title">About</h3>
+            <p class="about-text">
+              <strong>Solace</strong> is a fully private journaling and task management app.
+              All your data lives exclusively in your browser's LocalStorage — nothing is ever sent to any server.
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ---- OVERLAY for sidebar on mobile ---- -->
+  <div class="sidebar-overlay hidden" id="sidebarOverlay"></div>
+
+  <!-- ---- CONFIRM MODAL ---- -->
+  <div class="modal-overlay hidden" id="confirmModal">
+    <div class="modal-card">
+      <p id="confirmMessage">Are you sure?</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+        <button class="btn btn-danger" id="confirmOk">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---- TOAST ---- -->
+  <div class="toast hidden" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
